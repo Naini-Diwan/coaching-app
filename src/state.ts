@@ -1,8 +1,8 @@
 import { reactive, ref } from 'vue';
-import { supabase } from '@/supabase';
+import { supabase } from './supabase';;
 
 export interface UserProfile {
-  id: number;
+  id: string;
   username: string;
   role: 'instructor' | 'online_student' | 'offline_student' | string;
   name: string;

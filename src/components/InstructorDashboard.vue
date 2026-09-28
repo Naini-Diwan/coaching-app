@@ -431,7 +431,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
-import { supabase } from '@/supabase';
+import { supabase } from './supabase';
 import { authState, triggerPushNotification, openConfirmDialog } from '../state';
 import { openModal, closeModal } from '../utils/modal';
 

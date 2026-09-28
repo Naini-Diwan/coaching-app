@@ -14,10 +14,11 @@
 
     <form @submit.prevent="handleLogin">
       <div class="mb-3">
-        <label class="form-label text-dark fw-semibold small">Username</label>
+        <!-- Note: Supabase defaults to Email for login. You may need to enter an email here even though the label says Username -->
+        <label class="form-label text-dark fw-semibold small">Username / Email</label>
         <div class="input-group">
           <span class="input-group-text bg-white border-end-0"><i class="bi bi-person text-muted"></i></span>
-          <input v-model="username" type="text" class="form-control border-start-0 ps-1" placeholder="Enter username..." required />
+          <input v-model="username" type="text" class="form-control border-start-0 ps-1" placeholder="Enter email..." required />
         </div>
       </div>
       
@@ -40,6 +41,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { setLoggedInUser, triggerPushNotification } from '../state';
+// Import your Supabase client. (Verify this path matches where supabase.ts is located)
+import { supabase } from '../supabase';
 
 const username = ref('');
 const password = ref('');
@@ -51,20 +54,27 @@ const emit = defineEmits(['success']);
 async function handleLogin() {
   loading.value = true;
   errorMsg.value = '';
+  
   try {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username.value, password: password.value }),
+    // Call Supabase directly instead of the deleted server.ts
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: username.value, 
+      password: password.value,
     });
     
-    const data = await res.json();
-    if (data.success) {
-      setLoggedInUser(data.user);
-      triggerPushNotification('Logged In successfully', `Welcome back, ${data.user.name}!`);
-      emit('success', data.user);
-    } else {
-      errorMsg.value = data.error || 'Invalid credentials. Please try again.';
+    if (error) {
+      errorMsg.value = error.message;
+    } else if (data.user) {
+      // Map the Supabase user to the format your app's state expects
+      const appUser = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.user_metadata?.name || username.value.split('@')[0],
+      };
+
+      setLoggedInUser(appUser);
+      triggerPushNotification('Logged In successfully', `Welcome back, ${appUser.name}!`);
+      emit('success', appUser);
     }
   } catch (err) {
     errorMsg.value = 'Network error. Please try again later.';
