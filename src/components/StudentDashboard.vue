@@ -173,7 +173,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import { supabase } from './supabase';
+import { supabase } from '../supabase';
 import { authState, triggerPushNotification, openConfirmDialog } from '../state';
 import { openModal, closeModal } from '../utils/modal';
 
