@@ -56,20 +56,24 @@ async function handleLogin() {
   errorMsg.value = '';
   
   try {
-    // Call Supabase directly instead of the deleted server.ts
+    // Automatically convert "diwansir" to "diwansir@coaching.app" for Supabase
+    let loginEmail = username.value.trim();
+    if (!loginEmail.includes('@')) {
+      loginEmail = `${loginEmail}@coaching.app`;
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: username.value, 
+      email: loginEmail, 
       password: password.value,
     });
     
     if (error) {
       errorMsg.value = error.message;
     } else if (data.user) {
-      // Map the Supabase user to the format your app's state expects
       const appUser = {
         id: data.user.id,
         email: data.user.email,
-        name: data.user.user_metadata?.name || username.value.split('@')[0],
+        name: data.user.user_metadata?.name || username.value,
       };
 
       setLoggedInUser(appUser);
