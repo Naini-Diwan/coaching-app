@@ -414,10 +414,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive, watch } from 'vue';
+import { supabase } from '../supabase';
 import { authState, triggerPushNotification, openConfirmDialog } from '../state';
 import { openModal, closeModal } from '../utils/modal';
 
-// State refs
 const materials = ref<any[]>([]);
 const idioms = ref<any[]>([]);
 const videos = ref<any[]>([]);
@@ -426,35 +426,23 @@ const materialCategory = ref('all');
 const materialSearch = ref('');
 const idiomSearch = ref('');
 
-// Forms
 const editingMaterialId = ref<number | null>(null);
 const materialForm = reactive({
-  category: 'accent',
-  title: '',
-  content: '',
-  url: '',
-  image_url: '',
-  is_public: 1
+  category: 'accent', title: '', content: '', url: '', image_url: '', is_public: 1
 });
 
 const editingIdiomId = ref<number | null>(null);
 const idiomForm = reactive({
-  phrase: '',
-  meaning: '',
-  usage: '',
-  is_public: 1
+  phrase: '', meaning: '', usage: '', is_public: 1
 });
 
 const editingVideoId = ref<number | null>(null);
 const videoForm = reactive({
-  title: '',
-  video_url: '',
-  description: ''
+  title: '', video_url: '', description: ''
 });
 
 const feedbackForm = ref<Record<number, string>>({});
 
-// Edit Perms (Instructor only)
 const canEdit = computed(() => {
   return authState.isLoggedIn && authState.user?.role === 'instructor';
 });
@@ -464,6 +452,210 @@ function canManageVideo(video: any): boolean {
   if (authState.user?.role === 'instructor') return true;
   return video.student_id === authState.user.id;
 }
+
+const filteredMaterials = computed(() => {
+  return materials.value.filter(item => {
+    if (!authState.isLoggedIn && item.is_public === 0) return false;
+    const matchesCat = materialCategory.value === 'all' || item.category === materialCategory.value;
+    const matchesSearch = item.title.toLowerCase().includes(materialSearch.value.toLowerCase()) ||
+                          (item.content || '').toLowerCase().includes(materialSearch.value.toLowerCase());
+    return matchesCat && matchesSearch;
+  });
+});
+
+const filteredIdioms = computed(() => {
+  return idioms.value.filter(item => {
+    if (!authState.isLoggedIn && item.is_public === 0) return false;
+    return item.phrase.toLowerCase().includes(idiomSearch.value.toLowerCase()) ||
+           item.meaning.toLowerCase().includes(idiomSearch.value.toLowerCase()) ||
+           item.usage.toLowerCase().includes(idiomSearch.value.toLowerCase());
+  });
+});
+
+async function fetchMaterials() {
+  try {
+    const { data, error } = await supabase.from('practice_materials').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    materials.value = data || [];
+  } catch (err) { console.error(err); }
+}
+
+async function fetchIdioms() {
+  try {
+    const { data, error } = await supabase.from('idioms_phrases').select('*').order('phrase', { ascending: true });
+    if (error) throw error;
+    idioms.value = data || [];
+  } catch (err) { console.error(err); }
+}
+
+async function fetchVideos() {
+  if (!authState.isLoggedIn) return;
+  try {
+    let query = supabase.from('practice_videos').select('*').order('created_at', { ascending: false });
+    if (authState.user?.role !== 'instructor') {
+      query = query.eq('student_id', authState.user?.id);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    videos.value = data || [];
+  } catch (err) { console.error(err); }
+}
+
+async function toggleMaterialPublic(item: any) {
+  try {
+    const newStatus = item.is_public === 1 ? 0 : 1;
+    const { error } = await supabase.from('practice_materials').update({ is_public: newStatus }).eq('id', item.id);
+    if (!error) {
+      item.is_public = newStatus;
+      triggerPushNotification('Access Updated', `"${item.title}" is now ${newStatus === 1 ? 'Public' : 'Enrolled Only'}`);
+    }
+  } catch (err) { console.error(err); }
+}
+
+async function toggleIdiomPublic(item: any) {
+  try {
+    const newStatus = item.is_public === 1 ? 0 : 1;
+    const { error } = await supabase.from('idioms_phrases').update({ is_public: newStatus }).eq('id', item.id);
+    if (!error) {
+      item.is_public = newStatus;
+      triggerPushNotification('Access Updated', `"${item.phrase}" is now ${newStatus === 1 ? 'Public' : 'Enrolled Only'}`);
+    }
+  } catch (err) { console.error(err); }
+}
+
+function openMaterialModal(item: any | null) {
+  if (item) {
+    editingMaterialId.value = item.id;
+    Object.assign(materialForm, item);
+  } else {
+    editingMaterialId.value = null;
+    Object.assign(materialForm, { category: 'accent', title: '', content: '', url: '', image_url: '', is_public: 1 });
+  }
+  openModal('materialModal');
+}
+
+async function saveMaterial() {
+  try {
+    let error;
+    if (editingMaterialId.value) {
+      const res = await supabase.from('practice_materials').update(materialForm).eq('id', editingMaterialId.value);
+      error = res.error;
+    } else {
+      const res = await supabase.from('practice_materials').insert([materialForm]);
+      error = res.error;
+    }
+    if (error) throw error;
+    await fetchMaterials();
+    closeModal('materialModal');
+    triggerPushNotification(editingMaterialId.value ? 'Updated' : 'Added', `Lesson topic saved: ${materialForm.title}`);
+  } catch (err) { console.error(err); }
+}
+
+function deleteMaterial(id: number) {
+  openConfirmDialog({
+    title: 'Delete Material', message: 'Delete this lesson?', confirmText: 'Delete', confirmVariant: 'danger',
+    onConfirm: async () => {
+      const { error } = await supabase.from('practice_materials').delete().eq('id', id);
+      if (!error) { await fetchMaterials(); triggerPushNotification('Deleted', 'Lesson removed.'); }
+    }
+  });
+}
+
+function openIdiomModal(item: any | null) {
+  if (item) {
+    editingIdiomId.value = item.id;
+    Object.assign(idiomForm, item);
+  } else {
+    editingIdiomId.value = null;
+    Object.assign(idiomForm, { phrase: '', meaning: '', usage: '', is_public: 1 });
+  }
+  openModal('idiomModal');
+}
+
+async function saveIdiom() {
+  try {
+    let error;
+    if (editingIdiomId.value) {
+      const res = await supabase.from('idioms_phrases').update(idiomForm).eq('id', editingIdiomId.value);
+      error = res.error;
+    } else {
+      const res = await supabase.from('idioms_phrases').insert([idiomForm]);
+      error = res.error;
+    }
+    if (error) throw error;
+    await fetchIdioms();
+    closeModal('idiomModal');
+    triggerPushNotification(editingIdiomId.value ? 'Updated' : 'Added', `Idiom deck saved.`);
+  } catch (err) { console.error(err); }
+}
+
+function deleteIdiom(id: number) {
+  openConfirmDialog({
+    title: 'Delete Idiom', message: 'Delete this idiom?', confirmText: 'Delete', confirmVariant: 'danger',
+    onConfirm: async () => {
+      const { error } = await supabase.from('idioms_phrases').delete().eq('id', id);
+      if (!error) { await fetchIdioms(); triggerPushNotification('Deleted', 'Idiom removed.'); }
+    }
+  });
+}
+
+function openUploadVideoModal() {
+  editingVideoId.value = null;
+  Object.assign(videoForm, { title: '', video_url: '', description: '' });
+  openModal('uploadVideoModal');
+}
+
+function openEditVideoModal(video: any) {
+  editingVideoId.value = video.id;
+  Object.assign(videoForm, { title: video.title, video_url: video.video_url, description: video.description || '' });
+  openModal('uploadVideoModal');
+}
+
+async function submitVideo() {
+  try {
+    let error;
+    const payload = { ...videoForm, student_id: authState.user?.id, student_name: authState.user?.name || 'Student' };
+    if (editingVideoId.value) {
+      const res = await supabase.from('practice_videos').update({ title: videoForm.title, video_url: videoForm.video_url, description: videoForm.description }).eq('id', editingVideoId.value);
+      error = res.error;
+    } else {
+      const res = await supabase.from('practice_videos').insert([payload]);
+      error = res.error;
+    }
+    if (error) throw error;
+    await fetchVideos();
+    closeModal('uploadVideoModal');
+    triggerPushNotification('Saved', 'Speaking practice record successfully saved!');
+  } catch (err) { console.error(err); }
+}
+
+function deleteVideo(id: number) {
+  openConfirmDialog({
+    title: 'Delete Video', message: 'Remove this submission?', confirmText: 'Delete', confirmVariant: 'danger',
+    onConfirm: async () => {
+      const { error } = await supabase.from('practice_videos').delete().eq('id', id);
+      if (!error) { await fetchVideos(); triggerPushNotification('Removed', 'Video deleted.'); }
+    }
+  });
+}
+
+async function submitFeedback(videoId: number) {
+  try {
+    const { error } = await supabase.from('practice_videos').update({ feedback_text: feedbackForm.value[videoId] }).eq('id', videoId);
+    if (error) throw error;
+    feedbackForm.value[videoId] = '';
+    await fetchVideos();
+    triggerPushNotification('Feedback Sent', 'Evaluation submitted!');
+  } catch (err) { console.error(err); }
+}
+
+watch(() => authState.isLoggedIn, () => {
+  fetchMaterials(); fetchIdioms(); fetchVideos();
+});
+
+onMounted(() => {
+  fetchMaterials(); fetchIdioms(); fetchVideos();
+});
 
 // Category classes & helpers
 function getCategoryBg(category: string) {
@@ -496,375 +688,11 @@ function getBadgeClass(category: string) {
   }
 }
 
-// Format date helper
 function formatDate(dateStr: string) {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   return date.toLocaleString();
 }
-
-// Computed filters
-const filteredMaterials = computed(() => {
-  return materials.value.filter(item => {
-    // Unregistered guest: ONLY accessible if enabled as Public
-    if (!authState.isLoggedIn && item.is_public === 0) return false;
-    const matchesCat = materialCategory.value === 'all' || item.category === materialCategory.value;
-    const matchesSearch = item.title.toLowerCase().includes(materialSearch.value.toLowerCase()) ||
-                          (item.content || '').toLowerCase().includes(materialSearch.value.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
-});
-
-const filteredIdioms = computed(() => {
-  return idioms.value.filter(item => {
-    // Unregistered guest: ONLY accessible if enabled as Public
-    if (!authState.isLoggedIn && item.is_public === 0) return false;
-    return item.phrase.toLowerCase().includes(idiomSearch.value.toLowerCase()) ||
-           item.meaning.toLowerCase().includes(idiomSearch.value.toLowerCase()) ||
-           item.usage.toLowerCase().includes(idiomSearch.value.toLowerCase());
-  });
-});
-
-// Fetch APIs
-async function fetchMaterials() {
-  try {
-    const headers: Record<string, string> = {};
-    if (authState.isLoggedIn && authState.user) {
-      headers['X-User-Id'] = String(authState.user.id);
-      headers['X-User-Role'] = authState.user.role || '';
-    }
-    const res = await fetch('/api/practice-materials', { headers });
-    materials.value = await res.json();
-  } catch (err) {
-    console.error('Error materials:', err);
-  }
-}
-
-async function fetchIdioms() {
-  try {
-    const headers: Record<string, string> = {};
-    if (authState.isLoggedIn && authState.user) {
-      headers['X-User-Id'] = String(authState.user.id);
-      headers['X-User-Role'] = authState.user.role || '';
-    }
-    const res = await fetch('/api/idioms', { headers });
-    idioms.value = await res.json();
-  } catch (err) {
-    console.error('Error idioms:', err);
-  }
-}
-
-async function fetchVideos() {
-  if (!authState.isLoggedIn) return;
-  try {
-    const headers: Record<string, string> = {
-      'X-User-Id': String(authState.user?.id),
-      'X-User-Role': authState.user?.role || '',
-    };
-    const res = await fetch('/api/practice-videos', { headers });
-    videos.value = await res.json();
-  } catch (err) {
-    console.error('Error videos:', err);
-  }
-}
-
-// 1-Click Visibility Toggles for Instructor
-async function toggleMaterialPublic(item: any) {
-  try {
-    const res = await fetch(`/api/practice-materials/${item.id}/toggle-public`, {
-      method: 'PATCH',
-      headers: {
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      }
-    });
-    const data = await res.json();
-    if (data.success) {
-      item.is_public = data.is_public;
-      triggerPushNotification(
-        'Access Updated',
-        `"${item.title}" is now ${data.is_public === 1 ? 'Public' : 'Enrolled Students Only'}`
-      );
-    }
-  } catch (err) {
-    console.error('Error toggling material public:', err);
-  }
-}
-
-async function toggleIdiomPublic(item: any) {
-  try {
-    const res = await fetch(`/api/idioms/${item.id}/toggle-public`, {
-      method: 'PATCH',
-      headers: {
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      }
-    });
-    const data = await res.json();
-    if (data.success) {
-      item.is_public = data.is_public;
-      triggerPushNotification(
-        'Access Updated',
-        `"${item.phrase}" is now ${data.is_public === 1 ? 'Public' : 'Enrolled Students Only'}`
-      );
-    }
-  } catch (err) {
-    console.error('Error toggling idiom public:', err);
-  }
-}
-
-// CRUD Materials
-function openMaterialModal(item: any | null) {
-  if (item) {
-    editingMaterialId.value = item.id;
-    materialForm.category = item.category;
-    materialForm.title = item.title;
-    materialForm.content = item.content;
-    materialForm.url = item.url;
-    materialForm.image_url = item.image_url;
-    materialForm.is_public = item.is_public !== 0 ? 1 : 0;
-  } else {
-    editingMaterialId.value = null;
-    materialForm.category = 'accent';
-    materialForm.title = '';
-    materialForm.content = '';
-    materialForm.url = '';
-    materialForm.image_url = '';
-    materialForm.is_public = 1;
-  }
-  openModal('materialModal');
-}
-
-async function saveMaterial() {
-  try {
-    const method = editingMaterialId.value ? 'PUT' : 'POST';
-    const endpoint = editingMaterialId.value ? `/api/practice-materials/${editingMaterialId.value}` : '/api/practice-materials';
-    
-    const res = await fetch(endpoint, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      },
-      body: JSON.stringify(materialForm),
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      await fetchMaterials();
-      closeModal('materialModal');
-      triggerPushNotification(
-        editingMaterialId.value ? 'Material Updated' : 'Material Added',
-        `Lesson topic saved: ${materialForm.title}`
-      );
-    }
-  } catch (err) {
-    console.error('Error saving material:', err);
-  }
-}
-
-function deleteMaterial(id: number) {
-  openConfirmDialog({
-    title: 'Delete Study Material',
-    message: 'Are you sure you want to delete this study lesson? This content will be permanently removed.',
-    confirmText: 'Delete Lesson',
-    confirmVariant: 'danger',
-    onConfirm: async () => {
-      const res = await fetch(`/api/practice-materials/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'X-User-Id': String(authState.user?.id),
-          'X-User-Role': authState.user?.role || '',
-        },
-      });
-      const data = await res.json();
-      if (data.success) {
-        await fetchMaterials();
-        triggerPushNotification('Material Deleted', 'The lesson record has been removed.');
-      }
-    }
-  });
-}
-
-// CRUD Idioms
-function openIdiomModal(item: any | null) {
-  if (item) {
-    editingIdiomId.value = item.id;
-    idiomForm.phrase = item.phrase;
-    idiomForm.meaning = item.meaning;
-    idiomForm.usage = item.usage;
-    idiomForm.is_public = item.is_public !== 0 ? 1 : 0;
-  } else {
-    editingIdiomId.value = null;
-    idiomForm.phrase = '';
-    idiomForm.meaning = '';
-    idiomForm.usage = '';
-    idiomForm.is_public = 1;
-  }
-  openModal('idiomModal');
-}
-
-async function saveIdiom() {
-  try {
-    const method = editingIdiomId.value ? 'PUT' : 'POST';
-    const endpoint = editingIdiomId.value ? `/api/idioms/${editingIdiomId.value}` : '/api/idioms';
-    
-    const res = await fetch(endpoint, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      },
-      body: JSON.stringify(idiomForm),
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      await fetchIdioms();
-      closeModal('idiomModal');
-      triggerPushNotification(
-        editingIdiomId.value ? 'Idiom Updated' : 'Idiom Added',
-        `Idiom deck saved: ${idiomForm.phrase}`
-      );
-    }
-  } catch (err) {
-    console.error('Error saving idiom:', err);
-  }
-}
-
-function deleteIdiom(id: number) {
-  openConfirmDialog({
-    title: 'Delete Idiom Card',
-    message: 'Are you sure you want to delete this idiom card? It will be removed from the deck.',
-    confirmText: 'Delete Idiom',
-    confirmVariant: 'danger',
-    onConfirm: async () => {
-      const res = await fetch(`/api/idioms/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'X-User-Id': String(authState.user?.id),
-          'X-User-Role': authState.user?.role || '',
-        },
-      });
-      const data = await res.json();
-      if (data.success) {
-        await fetchIdioms();
-        triggerPushNotification('Idiom Deleted', 'The idiom card has been deleted.');
-      }
-    }
-  });
-}
-
-// Student & Instructor Speaking Video Methods
-function openUploadVideoModal() {
-  editingVideoId.value = null;
-  videoForm.title = '';
-  videoForm.video_url = '';
-  videoForm.description = '';
-  openModal('uploadVideoModal');
-}
-
-function openEditVideoModal(video: any) {
-  editingVideoId.value = video.id;
-  videoForm.title = video.title;
-  videoForm.video_url = video.video_url;
-  videoForm.description = video.description || '';
-  openModal('uploadVideoModal');
-}
-
-async function submitVideo() {
-  try {
-    const method = editingVideoId.value ? 'PUT' : 'POST';
-    const endpoint = editingVideoId.value ? `/api/practice-videos/${editingVideoId.value}` : '/api/practice-videos';
-
-    const res = await fetch(endpoint, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      },
-      body: JSON.stringify(videoForm),
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      videoForm.title = '';
-      videoForm.video_url = '';
-      videoForm.description = '';
-      editingVideoId.value = null;
-      await fetchVideos();
-      closeModal('uploadVideoModal');
-      triggerPushNotification('Exercise Saved', 'Speaking practice record successfully saved!');
-    }
-  } catch (err) {
-    console.error('Error submitting video:', err);
-  }
-}
-
-function deleteVideo(id: number) {
-  openConfirmDialog({
-    title: 'Delete Practice Video',
-    message: 'Are you sure you want to remove this speaking exercise submission?',
-    confirmText: 'Delete Submission',
-    confirmVariant: 'danger',
-    onConfirm: async () => {
-      const res = await fetch(`/api/practice-videos/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'X-User-Id': String(authState.user?.id),
-          'X-User-Role': authState.user?.role || '',
-        },
-      });
-      const data = await res.json();
-      if (data.success) {
-        await fetchVideos();
-        triggerPushNotification('Video Removed', 'The speaking exercise has been deleted.');
-      }
-    }
-  });
-}
-
-// Instructor submits video feedback
-async function submitFeedback(videoId: number) {
-  try {
-    const res = await fetch(`/api/practice-videos/${videoId}/feedback`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      },
-      body: JSON.stringify({
-        feedback_text: feedbackForm.value[videoId],
-      }),
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      feedbackForm.value[videoId] = '';
-      await fetchVideos();
-      triggerPushNotification('Feedback Sent', 'Spoken English evaluation submitted and notification broadcasted!');
-    }
-  } catch (err) {
-    console.error('Error submitting feedback:', err);
-  }
-}
-
-// Trigger load on state change
-watch(() => authState.isLoggedIn, () => {
-  fetchMaterials();
-  fetchIdioms();
-  fetchVideos();
-});
-
-onMounted(() => {
-  fetchMaterials();
-  fetchIdioms();
-  fetchVideos();
-});
 </script>
 
 <style scoped>

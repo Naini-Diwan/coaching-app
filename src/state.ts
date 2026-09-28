@@ -29,7 +29,6 @@ export function setLoggedInUser(user: UserProfile) {
   authState.isLoggedIn = true;
 }
 
-// Updated to use Supabase instead of fetch('/api/notifications')
 export async function fetchNotifications() {
   if (!authState.isLoggedIn || !authState.user) {
     notifications.value = [];

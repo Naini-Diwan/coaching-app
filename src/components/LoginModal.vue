@@ -56,7 +56,6 @@ async function handleLogin() {
   errorMsg.value = '';
   
   try {
-    // Automatically convert "diwansir" to "diwansir@coaching.app" for Supabase
     let loginEmail = username.value.trim();
     if (!loginEmail.includes('@')) {
       loginEmail = `${loginEmail}@coaching.app`;
@@ -70,10 +69,15 @@ async function handleLogin() {
     if (error) {
       errorMsg.value = error.message;
     } else if (data.user) {
+      // Pull role and name from user_metadata, defaulting to online_student if not set
+      const role = data.user.user_metadata?.role || 'online_student';
+      const name = data.user.user_metadata?.name || username.value.split('@')[0];
+
       const appUser = {
-        id: data.user.id,
+        id: data.user.id, // Keep as string format from Supabase
         email: data.user.email,
-        name: data.user.user_metadata?.name || username.value,
+        name: name,
+        role: role
       };
 
       setLoggedInUser(appUser);
@@ -86,4 +90,5 @@ async function handleLogin() {
     loading.value = false;
   }
 }
+
 </script>

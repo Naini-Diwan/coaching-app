@@ -202,6 +202,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, watch } from 'vue';
+import { supabase } from './supabase';
 import { authState, triggerPushNotification, openConfirmDialog } from './state';
 import { openModal, closeModal } from './utils/modal';
 import LoginModal from './components/LoginModal.vue';
@@ -221,7 +222,6 @@ function onLogoError() {
 const announcements = ref<any[]>([]);
 const closeLoginModalBtn = ref<any>(null);
 
-// Forms
 const editingAnnId = ref<number | null>(null);
 const annForm = reactive({
   title: '',
@@ -230,43 +230,26 @@ const annForm = reactive({
   audience: 'open'
 });
 
-function formatDate(dateStr: string) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return date.toLocaleString();
-}
-
-function formatTime(dateStr: string) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function getAudienceClass(audience: string) {
-  switch (audience) {
-    case 'open': return 'bg-success bg-opacity-10 text-success';
-    case 'both': return 'bg-primary bg-opacity-10 text-primary';
-    case 'online': return 'bg-info bg-opacity-10 text-dark';
-    default: return 'bg-secondary bg-opacity-10 text-secondary';
-  }
-}
-
-// Fetch Announcements
 async function fetchAnnouncements() {
   try {
-    const headers: Record<string, string> = {};
-    if (authState.isLoggedIn && authState.user) {
-      headers['X-User-Id'] = String(authState.user.id);
-      headers['X-User-Role'] = authState.user.role;
+    let query = supabase.from('announcements').select('*').order('created_at', { ascending: false });
+    
+    if (!authState.isLoggedIn) {
+      query = query.eq('audience', 'open');
+    } else if (authState.user?.role === 'online_student') {
+      query = query.in('audience', ['open', 'both', 'online']);
+    } else if (authState.user?.role === 'offline_student') {
+      query = query.in('audience', ['open', 'both']);
     }
-    const res = await fetch('/api/announcements', { headers });
-    announcements.value = await res.json();
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    announcements.value = data || [];
   } catch (err) {
     console.error('Error announcements:', err);
   }
 }
 
-// Post Announcement
 function openAnnModal(ann: any | null) {
   if (ann) {
     editingAnnId.value = ann.id;
@@ -286,28 +269,23 @@ function openAnnModal(ann: any | null) {
 
 async function saveAnnouncement() {
   try {
-    const method = editingAnnId.value ? 'PUT' : 'POST';
-    const endpoint = editingAnnId.value ? `/api/announcements/${editingAnnId.value}` : '/api/announcements';
-    
-    const res = await fetch(endpoint, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Id': String(authState.user?.id),
-        'X-User-Role': authState.user?.role || '',
-      },
-      body: JSON.stringify(annForm),
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      await fetchAnnouncements();
-      closeModal('announcementModal');
-      triggerPushNotification(
-        editingAnnId.value ? 'Announcement Updated' : 'Announcement Saved',
-        `Broadcast: ${annForm.title}`
-      );
+    let error;
+    if (editingAnnId.value) {
+      const res = await supabase.from('announcements').update(annForm).eq('id', editingAnnId.value);
+      error = res.error;
+    } else {
+      const res = await supabase.from('announcements').insert([annForm]);
+      error = res.error;
     }
+
+    if (error) throw error;
+    
+    await fetchAnnouncements();
+    closeModal('announcementModal');
+    triggerPushNotification(
+      editingAnnId.value ? 'Announcement Updated' : 'Announcement Saved',
+      `Broadcast: ${annForm.title}`
+    );
   } catch (err) {
     console.error('Error saving announcement:', err);
   }
@@ -320,15 +298,8 @@ function deleteAnnouncement(id: number) {
     confirmText: 'Delete Alert',
     confirmVariant: 'danger',
     onConfirm: async () => {
-      const res = await fetch(`/api/announcements/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'X-User-Id': String(authState.user?.id),
-          'X-User-Role': authState.user?.role || '',
-        },
-      });
-      const data = await res.json();
-      if (data.success) {
+      const { error } = await supabase.from('announcements').delete().eq('id', id);
+      if (!error) {
         await fetchAnnouncements();
         triggerPushNotification('Announcement Removed', 'The alert has been removed from the feed.');
       }
@@ -336,7 +307,6 @@ function deleteAnnouncement(id: number) {
   });
 }
 
-// Auth handlers
 function onLoginSuccess() {
   if (closeLoginModalBtn.value) {
     closeLoginModalBtn.value.click();
@@ -350,7 +320,6 @@ function handleLogout() {
   triggerPushNotification('Logged Out', `Goodbye ${oldName}! See you next class.`);
 }
 
-// Watchers
 watch(() => authState.isLoggedIn, () => {
   fetchAnnouncements();
 });

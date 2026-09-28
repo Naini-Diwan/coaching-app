@@ -98,7 +98,7 @@
                   </div>
                   
                   <div class="mb-3">
-                    <label class="form-label text-dark small fw-semibold">Username (Unique)</label>
+                    <label class="form-label text-dark small fw-semibold">Username / Email (Unique)</label>
                     <input v-model="regForm.username" type="text" class="form-control" placeholder="e.g. ramesh_spoken" required />
                   </div>
 
@@ -275,13 +275,11 @@
 
                   <p class="fw-semibold text-dark fs-5 mt-2 mb-3">Q: "{{ doubt.question }}"</p>
                   
-                  <!-- Display active answer/solution if present -->
                   <div v-if="doubt.solution" class="bg-light p-3 rounded-3 mb-2 border border-secondary border-opacity-10">
                     <p class="text-muted small mb-1 fw-bold"><i class="bi bi-check-circle text-success me-1"></i>Diwan Sir's Solution (Published):</p>
                     <p class="text-dark small m-0 italic">"{{ doubt.solution }}"</p>
                   </div>
 
-                  <!-- Resolve / Reply Box -->
                   <div class="pt-3 border-top mt-2">
                     <form @submit.prevent="submitDoubtSolution(doubt.id)">
                       <div class="input-group">
@@ -301,7 +299,6 @@
         <!-- Tab 4: Class Scheduling Availability -->
         <div class="tab-pane fade" id="schedule-pane" role="tabpanel" aria-labelledby="schedule-tab">
           <div class="row g-4">
-            <!-- Left Panel: Create class schedule -->
             <div class="col-md-5">
               <div class="card border-0 shadow-sm p-4 rounded-4 bg-white">
                 <h5 class="fw-bold mb-3 text-dark"><i class="bi bi-calendar-plus text-warning me-1"></i>Publish Upcoming Class Schedule</h5>
@@ -318,7 +315,6 @@
               </div>
             </div>
 
-            <!-- Right Panel: Upcoming classes list -->
             <div class="col-md-7">
               <div class="card border-0 shadow-sm p-4 rounded-4 bg-white h-100">
                 <h5 class="fw-bold mb-3 text-dark">Upcoming Classes Schedule</h5>
@@ -370,7 +366,7 @@
                 <input v-model="editStudentForm.name" type="text" class="form-control" required />
               </div>
               <div class="mb-3">
-                <label class="form-label text-dark small fw-semibold">Username</label>
+                <label class="form-label text-dark small fw-semibold">Username / Email</label>
                 <input v-model="editStudentForm.username" type="text" class="form-control" required />
               </div>
               <div class="mb-3">
@@ -435,17 +431,14 @@ import { supabase } from '../supabase';
 import { authState, triggerPushNotification, openConfirmDialog } from '../state';
 import { openModal, closeModal } from '../utils/modal';
 
-// State listings
 const students = ref<any[]>([]);
 const attendanceLogs = ref<any[]>([]);
 const doubts = ref<any[]>([]);
 const schedules = ref<any[]>([]);
 
-// Selection
-const attendanceDate = ref(new Date().toISOString().substring(0, 10)); // Default today
+const attendanceDate = ref(new Date().toISOString().substring(0, 10));
 const newSlotTime = ref('');
 
-// Forms
 const regForm = reactive({
   name: '',
   username: '',
@@ -455,7 +448,7 @@ const regForm = reactive({
 const regError = ref('');
 const regSuccess = ref('');
 
-const editingStudentId = ref<number | null>(null);
+const editingStudentId = ref<string | null>(null);
 const editStudentForm = reactive({
   name: '',
   username: '',
@@ -472,22 +465,19 @@ const editScheduleForm = reactive({
 
 const solutionsForm = ref<Record<number, string>>({});
 
-// Computed counters
 const onlineStudentsCount = computed(() => students.value.filter(s => s.role === 'online_student').length);
 const offlineStudentsCount = computed(() => students.value.filter(s => s.role === 'offline_student').length);
 
-// Format date
 function formatDate(dateStr: string) {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   return date.toLocaleString();
 }
 
-// Fetch lists from Supabase
 async function fetchStudents() {
   try {
     const { data, error } = await supabase
-      .from('users')
+      .from('profiles')
       .select('*')
       .in('role', ['online_student', 'offline_student']);
     if (error) throw error;
@@ -535,35 +525,51 @@ async function fetchSchedules() {
   }
 }
 
-// Register student profile
 async function registerStudent() {
   regError.value = '';
   regSuccess.value = '';
   try {
-    const { error } = await supabase
-      .from('users')
-      .insert([{
-        name: regForm.name,
-        username: regForm.username,
-        password: regForm.password,
-        role: regForm.role
-      }]);
-    if (error) {
-      regError.value = error.message || 'Failed to register student.';
-    } else {
+    let email = regForm.username.trim();
+    if (!email.includes('@')) {
+      email = `${email}@coaching.app`;
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password: regForm.password,
+      email_confirm: true,
+      user_metadata: { name: regForm.name, role: regForm.role }
+    });
+
+    if (authError) {
+      regError.value = authError.message;
+      return;
+    }
+
+    if (authData.user) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([{
+          id: authData.user.id,
+          name: regForm.name,
+          username: regForm.username,
+          role: regForm.role
+        }]);
+
+      if (profileError) throw profileError;
+
       regSuccess.value = `Student ${regForm.name} registered successfully!`;
       regForm.name = '';
       regForm.username = '';
       regForm.password = '';
       await fetchStudents();
-      triggerPushNotification('New Student Registered', 'Account credentials created in database.');
+      triggerPushNotification('New Student Registered', 'Account credentials created successfully.');
     }
-  } catch (err) {
-    regError.value = 'Database error.';
+  } catch (err: any) {
+    regError.value = err.message || 'Database error.';
   }
 }
 
-// Edit student profile
 function openEditStudentModal(student: any) {
   editingStudentId.value = student.id;
   editStudentForm.name = student.name;
@@ -581,12 +587,9 @@ async function saveStudentProfile() {
       username: editStudentForm.username,
       role: editStudentForm.role
     };
-    if (editStudentForm.password) {
-      updatePayload.password = editStudentForm.password;
-    }
 
     const { error } = await supabase
-      .from('users')
+      .from('profiles')
       .update(updatePayload)
       .eq('id', editingStudentId.value);
 
@@ -600,8 +603,7 @@ async function saveStudentProfile() {
   }
 }
 
-// Delete student profile
-function deleteStudentProfile(id: number) {
+function deleteStudentProfile(id: string) {
   openConfirmDialog({
     title: 'Delete Student Account',
     message: 'Are you sure you want to delete this student account? All their logs and attendance records will be removed.',
@@ -609,7 +611,7 @@ function deleteStudentProfile(id: number) {
     confirmVariant: 'danger',
     onConfirm: async () => {
       const { error } = await supabase
-        .from('users')
+        .from('profiles')
         .delete()
         .eq('id', id);
       if (!error) {
@@ -620,17 +622,16 @@ function deleteStudentProfile(id: number) {
   });
 }
 
-// Attendance handlers
-function getAttendanceStatus(studentId: number): string {
+function getAttendanceStatus(studentId: string): string {
   const record = attendanceLogs.value.find(log => log.student_id === studentId && log.date === attendanceDate.value);
   return record ? record.status : '';
 }
 
-function getAttendanceRecord(studentId: number) {
+function getAttendanceRecord(studentId: string) {
   return attendanceLogs.value.find(log => log.student_id === studentId && log.date === attendanceDate.value);
 }
 
-async function markAttendance(studentId: number, status: 'present' | 'absent') {
+async function markAttendance(studentId: string, status: 'present' | 'absent') {
   try {
     const existingRecord = getAttendanceRecord(studentId);
     let error;
@@ -647,7 +648,8 @@ async function markAttendance(studentId: number, status: 'present' | 'absent') {
         .insert([{
           student_id: studentId,
           date: attendanceDate.value,
-          status
+          status,
+          marked_by: authState.user?.id
         }]);
       error = res.error;
     }
@@ -661,7 +663,7 @@ async function markAttendance(studentId: number, status: 'present' | 'absent') {
   }
 }
 
-function deleteAttendance(studentId: number) {
+function deleteAttendance(studentId: string) {
   const record = getAttendanceRecord(studentId);
   if (!record) return;
   openConfirmDialog({
@@ -687,12 +689,11 @@ function refreshAttendanceGrid() {
   fetchAttendanceLogs();
 }
 
-// Doubts handlers
 async function submitDoubtSolution(doubtId: number) {
   try {
     const { error } = await supabase
       .from('doubts')
-      .update({ solution: solutionsForm.value[doubtId] })
+      .update({ solution: solutionsForm.value[doubtId], solved_at: new Date().toISOString() })
       .eq('id', doubtId);
 
     if (error) throw error;
@@ -725,7 +726,6 @@ function deleteDoubt(id: number) {
   });
 }
 
-// Schedule Availability handlers
 async function createScheduleSlot() {
   try {
     const { error } = await supabase
