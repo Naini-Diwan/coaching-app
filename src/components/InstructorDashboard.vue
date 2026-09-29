@@ -427,7 +427,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
-import { supabase } from '../supabase';
+import { supabase, registrationClient } from '../supabase';
 import { authState, triggerPushNotification, openConfirmDialog } from '../state';
 import { openModal, closeModal } from '../utils/modal';
 
@@ -534,11 +534,13 @@ async function registerStudent() {
       email = `${email}@coaching.app`;
     }
 
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
+    // 1. Create the user in Supabase Auth silently
+    const { data: authData, error: authError } = await registrationClient.auth.signUp({
+      email: email,
       password: regForm.password,
-      email_confirm: true,
-      user_metadata: { name: regForm.name, role: regForm.role }
+      options: {
+        data: { name: regForm.name, role: regForm.role }
+      }
     });
 
     if (authError) {
@@ -546,6 +548,7 @@ async function registerStudent() {
       return;
     }
 
+    // 2. Immediately link the new Auth ID to your Profiles table
     if (authData.user) {
       const { error: profileError } = await supabase
         .from('profiles')
