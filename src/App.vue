@@ -141,6 +141,41 @@
 
     </div>
 
+    <!-- Footer -->
+    <footer class="bg-dark text-white pt-4 pb-3 mt-5 border-top border-warning border-opacity-25">
+      <div class="container">
+        <div class="row g-4 pb-3 border-bottom border-secondary border-opacity-25">
+
+          <div class="col-md-6">
+            <h5 class="fw-bold text-warning mb-2">Spoken English Classes by Diwan Sir</h5>
+            <p class="text-white text-opacity-75 small mb-1">
+              <i class="bi bi-geo-alt-fill text-warning me-2"></i>
+              Sadar Bazar, Narmadapuram, Madhya Pradesh 461001, INDIA
+            </p>
+            <p class="text-white text-opacity-75 small mb-0">
+              <i class="bi bi-telephone-fill text-warning me-2"></i>
+              Mr. Virendra Diwan: <a href="tel:+919826531295" class="text-white text-decoration-none fw-semibold">+91-9826531295</a>
+            </p>
+          </div>
+
+          <!-- Author / Copyright Info -->
+          <div class="col-md-6 d-flex flex-column justify-content-md-end align-items-md-end">
+            <p class="text-white text-opacity-75 small mb-0">
+              &copy; 2026
+              <a
+                href="https://naini-diwan.github.io/Hello-Naini/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-warning fw-semibold text-decoration-none"
+              >
+                Naini Diwan
+              </a>. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </div>
+    </footer>
+
     <!-- Sign In Modal -->
     <div class="modal fade" id="loginModalBack" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
